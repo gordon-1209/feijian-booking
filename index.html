@@ -19,9 +19,8 @@
         <h1 class="text-lg font-bold tracking-wider text-stone-900">飛剪</h1>
         <p class="text-xs text-stone-500">專屬美髮造型線上預約 · 每週四公休</p>
       </div>
-      <button onclick="toggleModal(true)" class="text-xs bg-stone-100 hover:bg-stone-200 text-stone-800 font-medium px-3 py-2 rounded-full transition flex items-center gap-1.5">
-        <span>我的預約</span>
-        <span id="booking-count" class="bg-stone-900 text-white text-[10px] px-1.5 py-0.5 rounded-full">0</span>
+      <button onclick="toggleModal(true)" class="text-xs bg-stone-100 hover:bg-stone-200 text-stone-800 font-medium px-3.5 py-2 rounded-full transition flex items-center gap-1.5">
+        <span>查詢我的預約</span>
       </button>
     </div>
   </header>
@@ -71,16 +70,17 @@
       </div>
       <div class="bg-white p-4 rounded-2xl border border-stone-200 space-y-3">
         <div>
+          <label class="block text-xs font-medium text-stone-600 mb-1">手機號碼 <span class="text-red-500">*</span></label>
+          <input type="tel" id="customer-phone" oninput="handlePhoneInput()" placeholder="例如：0912345678（輸入後自動帶出回訪紀錄）" class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-xl focus:outline-none focus:border-stone-900" />
+          <div id="returning-badge" class="hidden mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-0.5"></div>
+        </div>
+        <div>
           <label class="block text-xs font-medium text-stone-600 mb-1">顧客姓名 <span class="text-red-500">*</span></label>
           <input type="text" id="customer-name" placeholder="例如：林小姐 / 陳先生" class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-xl focus:outline-none focus:border-stone-900" />
         </div>
         <div>
-          <label class="block text-xs font-medium text-stone-600 mb-1">手機號碼 <span class="text-red-500">*</span></label>
-          <input type="tel" id="customer-phone" placeholder="例如：0912345678" class="w-full px-3 py-2.5 text-sm border border-stone-300 rounded-xl focus:outline-none focus:border-stone-900" />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-stone-600 mb-1">備註需求（選填）</label>
-          <textarea id="customer-note" rows="2" placeholder="例如：希望保留長度、兩側推剪..." class="w-full px-3 py-2 text-sm border border-stone-300 rounded-xl focus:outline-none focus:border-stone-900"></textarea>
+          <label class="block text-xs font-medium text-stone-600 mb-1">剪髮偏好 / 備註需求（選填）</label>
+          <textarea id="customer-note" rows="2" placeholder="例如：兩側推剪 3mm、頭頂剪薄、希望保留長度..." class="w-full px-3 py-2 text-sm border border-stone-300 rounded-xl focus:outline-none focus:border-stone-900"></textarea>
         </div>
       </div>
     </section>
@@ -100,19 +100,24 @@
   </div>
 
   <div id="booking-modal" class="fixed inset-0 bg-black/50 z-30 hidden flex items-end sm:items-center justify-center p-4">
-    <div class="bg-white w-full max-w-md rounded-2xl p-5 max-h-[80vh] flex flex-col">
+    <div class="bg-white w-full max-w-md rounded-2xl p-5 max-h-[82vh] flex flex-col">
       <div class="flex justify-between items-center border-b border-stone-100 pb-3 mb-3">
-        <h3 class="font-bold text-stone-900">我的預約紀錄</h3>
+        <h3 class="font-bold text-stone-900">查詢我的預約</h3>
         <button onclick="toggleModal(false)" class="text-stone-400 hover:text-stone-700 text-xl leading-none">&times;</button>
       </div>
-      <div id="my-bookings-list" class="overflow-y-auto space-y-3 flex-1 pr-1"></div>
+      <div class="flex gap-2 mb-3">
+        <input type="tel" id="lookup-phone" placeholder="輸入預約時的手機號碼（例如：0912345678）" class="flex-1 px-3 py-2 text-sm border border-stone-300 rounded-xl focus:outline-none focus:border-stone-900" />
+        <button onclick="searchMyBookings()" class="bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium px-4 py-2 rounded-xl shrink-0">查詢</button>
+      </div>
+      <div id="my-bookings-list" class="overflow-y-auto space-y-3 flex-1 pr-1">
+        <p class="text-center text-stone-400 text-xs py-8">請輸入您的手機號碼以查看預約紀錄</p>
+      </div>
     </div>
   </div>
 
   <script>
     const API_URL = 'https://script.google.com/macros/s/AKfycbyuGMg2mRmqqkwOcIi77MumowuAMlbZ7hVxDGR5ugAzEIEShxVjz2tzbTEWSS1U7Zk/exec';
 
-    // 週四公休（dayOff: 4）。如需新增其他設計師，可依此格式往下加
     const STYLISTS = [
       { id: 's1', name: '飛剪設計師', role: '快速俐落剪髮 · 每週四公休', avatar: '✂️', dayOff: 4 }
     ];
@@ -128,9 +133,15 @@
     ];
 
     let state = { stylistId: null, serviceId: null, date: null, time: null, isSubmitting: false };
-    let bookings = [];
+    let bookedSlots = [];
+    let matchedCustomer = null;
+    let verifiedPhone = '';
 
-    async function fetchBookingsFromSheet() {
+    function normalizePhone(phone) {
+      return String(phone || '').replace(/\D/g, '');
+    }
+
+    async function fetchBookedSlots() {
       const hint = document.getElementById('slot-hint');
       if (hint && (!state.stylistId || !state.date)) {
         hint.textContent = '同步雲端時段中...';
@@ -139,12 +150,8 @@
         const res = await fetch(API_URL);
         const data = await res.json();
         if (data.ok) {
-          bookings = data.bookings || [];
+          bookedSlots = data.bookedSlots || data.bookings || [];
           renderTimeSlots();
-          updateBookingCount();
-          if (!document.getElementById('booking-modal').classList.contains('hidden')) {
-            renderMyBookings();
-          }
         }
       } catch (err) {
         if (hint && (!state.stylistId || !state.date)) {
@@ -153,13 +160,55 @@
       }
     }
 
+    async function lookupCustomerByPhone(phone) {
+      const cleanPhone = normalizePhone(phone);
+      const badge = document.getElementById('returning-badge');
+      if (cleanPhone.length < 8) {
+        matchedCustomer = null;
+        badge.classList.add('hidden');
+        return;
+      }
+      try {
+        const res = await fetch(`${API_URL}?action=customer&phone=${encodeURIComponent(cleanPhone)}`);
+        const data = await res.json();
+        if (data.ok && data.customer) {
+          matchedCustomer = data.customer;
+          const nameInput = document.getElementById('customer-name');
+          const noteInput = document.getElementById('customer-note');
+          if (!nameInput.value.trim() && data.customer.name) {
+            nameInput.value = data.customer.name;
+          }
+          if (!noteInput.value.trim() && data.customer.preference) {
+            noteInput.value = data.customer.preference;
+          }
+          badge.innerHTML = `
+            <div class="font-bold">✨ 歡迎回訪！累計來店 ${data.customer.visitCount || 1} 次</div>
+            <div>上次剪髮偏好：${data.customer.preference || '無特別備註'}</div>
+          `;
+          badge.classList.remove('hidden');
+        } else {
+          matchedCustomer = null;
+          badge.classList.add('hidden');
+        }
+      } catch (err) {
+        matchedCustomer = null;
+        badge.classList.add('hidden');
+      }
+    }
+
+    let phoneTimer = null;
+    function handlePhoneInput() {
+      clearTimeout(phoneTimer);
+      const val = document.getElementById('customer-phone').value;
+      phoneTimer = setTimeout(() => lookupCustomerByPhone(val), 350);
+    }
+
     async function init() {
       renderStylists();
       renderServices();
       renderDates();
       renderTimeSlots();
-      updateBookingCount();
-      await fetchBookingsFromSheet();
+      await fetchBookedSlots();
     }
 
     function renderStylists() {
@@ -235,7 +284,7 @@
       }
       hint.textContent = '已同步雲端可預約時段';
       container.innerHTML = TIME_SLOTS.map(t => {
-        const isBooked = bookings.some(b =>
+        const isBooked = bookedSlots.some(b =>
           String(b.stylistId) === String(state.stylistId) &&
           String(b.date) === String(state.date) &&
           String(b.time) === String(t)
@@ -261,7 +310,7 @@
       renderDates();
       renderTimeSlots();
       updateSummary();
-      await fetchBookingsFromSheet();
+      await fetchBookedSlots();
     }
 
     function selectService(id) {
@@ -276,7 +325,7 @@
       renderDates();
       renderTimeSlots();
       updateSummary();
-      await fetchBookingsFromSheet();
+      await fetchBookedSlots();
     }
 
     function selectTime(timeStr) {
@@ -301,13 +350,15 @@
     async function submitBooking() {
       if (state.isSubmitting) return;
       const name = document.getElementById('customer-name').value.trim();
-      const phone = document.getElementById('customer-phone').value.trim();
+      const phoneRaw = document.getElementById('customer-phone').value.trim();
+      const phone = normalizePhone(phoneRaw);
       const note = document.getElementById('customer-note').value.trim();
 
       if (!state.stylistId) return alert('請選擇設計師！');
       if (!state.serviceId) return alert('請選擇服務項目！');
       if (!state.date || !state.time) return alert('請選擇預約日期與時段！');
-      if (!name || !phone) return alert('請填寫顧客姓名與手機號碼！');
+      if (!phone || phone.length < 8) return alert('請填寫正確的手機號碼！');
+      if (!name) return alert('請填寫顧客姓名！');
 
       const stylist = STYLISTS.find(s => s.id === state.stylistId);
       const service = SERVICES.find(s => s.id === state.serviceId);
@@ -338,7 +389,7 @@
         const data = await res.json();
         if (!data.ok) {
           alert(data.error || '預約失敗，請稍後再試');
-          await fetchBookingsFromSheet();
+          await fetchBookedSlots();
           return;
         }
         const saved = data.booking;
@@ -348,8 +399,9 @@
         document.getElementById('customer-name').value = '';
         document.getElementById('customer-phone').value = '';
         document.getElementById('customer-note').value = '';
+        document.getElementById('returning-badge').classList.add('hidden');
         updateSummary();
-        await fetchBookingsFromSheet();
+        await fetchBookedSlots();
       } catch (err) {
         alert('送出預約時發生網路錯誤，請稍後再試。');
       } finally {
@@ -359,56 +411,77 @@
       }
     }
 
-    function updateBookingCount() {
-      document.getElementById('booking-count').textContent = bookings.length;
-    }
-
-    async function toggleModal(show) {
+    function toggleModal(show) {
       const modal = document.getElementById('booking-modal');
       if (show) {
         modal.classList.remove('hidden');
-        document.getElementById('my-bookings-list').innerHTML =
-          '<p class="text-center text-stone-400 text-sm py-8">正在同步預約紀錄...</p>';
-        await fetchBookingsFromSheet();
+        const currentPhone = normalizePhone(document.getElementById('customer-phone').value);
+        if (currentPhone.length >= 8) {
+          document.getElementById('lookup-phone').value = currentPhone;
+          searchMyBookings();
+        }
       } else {
         modal.classList.add('hidden');
       }
     }
 
-    function renderMyBookings() {
+    async function searchMyBookings() {
+      const phone = normalizePhone(document.getElementById('lookup-phone').value);
       const list = document.getElementById('my-bookings-list');
-      if (bookings.length === 0) {
-        list.innerHTML = '<p class="text-center text-stone-400 text-sm py-8">目前沒有任何預約紀錄</p>';
+      if (phone.length < 8) {
+        list.innerHTML = '<p class="text-center text-red-500 text-xs py-6">請輸入完整的手機號碼</p>';
         return;
       }
-      list.innerHTML = bookings.map(b => `
+      list.innerHTML = '<p class="text-center text-stone-400 text-xs py-8">正在查詢該手機號碼的預約...</p>';
+      try {
+        const res = await fetch(`${API_URL}?action=myBookings&phone=${encodeURIComponent(phone)}`);
+        const data = await res.json();
+        if (!data.ok) {
+          list.innerHTML = `<p class="text-center text-red-500 text-xs py-6">${data.error || '查詢失敗'}</p>`;
+          return;
+        }
+        verifiedPhone = phone;
+        renderMyBookingsList(data.bookings || []);
+      } catch (err) {
+        list.innerHTML = '<p class="text-center text-red-500 text-xs py-6">查詢時發生網路錯誤</p>';
+      }
+    }
+
+    function renderMyBookingsList(rows) {
+      const list = document.getElementById('my-bookings-list');
+      if (!rows.length) {
+        list.innerHTML = '<p class="text-center text-stone-400 text-xs py-8">此手機號碼目前沒有預約紀錄</p>';
+        return;
+      }
+      list.innerHTML = rows.map(b => `
         <div class="border border-stone-200 rounded-xl p-3.5 text-xs space-y-1.5 bg-stone-50">
           <div class="flex justify-between items-center">
             <span class="font-bold text-stone-900 text-sm">${b.date} ${b.time}</span>
             <span class="text-stone-400">#${b.id}</span>
           </div>
           <div class="text-stone-700 font-medium">${b.stylistName} ｜ ${b.serviceName}</div>
-          <div class="text-stone-500">預約人：${b.customerName} (${b.customerPhone})</div>
-          ${b.note ? `<div class="text-stone-500">備註：${b.note}</div>` : ''}
+          <div class="text-stone-500">預約人：${b.customerName}</div>
+          ${b.note ? `<div class="text-stone-500">剪髮偏好/備註：${b.note}</div>` : ''}
           <div class="pt-2 flex justify-between items-center border-t border-stone-200/70">
             <span class="font-bold text-stone-800">NT$ ${Number(b.price).toLocaleString()}</span>
-            <button onclick="cancelBooking('${b.id}')" class="text-red-500 hover:underline">取消預約</button>
+            <button onclick="cancelMyBooking('${b.id}')" class="text-red-500 hover:underline">取消預約</button>
           </div>
         </div>
       `).join('');
     }
 
-    async function cancelBooking(id) {
+    async function cancelMyBooking(id) {
       if (!confirm('確定要取消這筆預約嗎？')) return;
       try {
         const res = await fetch(API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'cancel', id: id })
+          body: JSON.stringify({ action: 'cancel', id: id, phone: verifiedPhone })
         });
         const data = await res.json();
         if (!data.ok) return alert(data.error || '取消失敗');
-        await fetchBookingsFromSheet();
+        await fetchBookedSlots();
+        await searchMyBookings();
       } catch (err) {
         alert('取消預約時發生網路錯誤');
       }
