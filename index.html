@@ -401,4 +401,100 @@
         document.getElementById('customer-note').value = '';
         document.getElementById('returning-badge').classList.add('hidden');
         updateSummary();
-        await fetchBookedSlots
+        await fetchBookedSlots();
+      } catch (err) {
+        alert('送出預約時發生網路錯誤，請稍後再試。');
+      } finally {
+        state.isSubmitting = false;
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+      }
+    }
+
+    function toggleModal(show) {
+      const modal = document.getElementById('booking-modal');
+      if (show) {
+        modal.classList.remove('hidden');
+        const currentPhone = normalizePhone(document.getElementById('customer-phone').value);
+        if (currentPhone.length >= 8) {
+          document.getElementById('lookup-phone').value = currentPhone;
+          searchMyBookings();
+        }
+      } else {
+        modal.classList.add('hidden');
+      }
+    }
+
+    async function searchMyBookings() {
+      const phone = normalizePhone(document.getElementById('lookup-phone').value);
+      const list = document.getElementById('my-bookings-list');
+      if (phone.length < 8) {
+        list.innerHTML = '<p class="text-center text-red-500 text-xs py-6">請輸入完整的手機號碼</p>';
+        return;
+      }
+      list.innerHTML = '<p class="text-center text-stone-400 text-xs py-8">正在查詢該手機號碼的預約...</p>';
+      try {
+        const res = await fetch(`${API_URL}?action=myBookings&phone=${encodeURIComponent(phone)}`);
+        const data = await res.json();
+        if (!data.ok) {
+          list.innerHTML = `<p class="text-center text-red-500 text-xs py-6">${data.error || '查詢失敗'}</p>`;
+          return;
+        }
+        verifiedPhone = phone;
+        renderMyBookingsList(data.bookings || []);
+      } catch (err) {
+        list.innerHTML = '<p class="text-center text-red-500 text-xs py-6">查詢時發生網路錯誤</p>';
+      }
+    }
+
+    function renderMyBookingsList(rows) {
+      const list = document.getElementById('my-bookings-list');
+      if (!rows.length) {
+        list.innerHTML = '<p class="text-center text-stone-400 text-xs py-8">此手機號碼目前沒有預約紀錄</p>';
+        return;
+      }
+      list.innerHTML = rows.map(b => `
+        <div class="border border-stone-200 rounded-xl p-3.5 text-xs space-y-1.5 bg-stone-50">
+          <div class="flex justify-between items-center">
+            <span class="font-bold text-stone-900 text-sm">${b.date} ${b.time}</span>
+            <span class="text-stone-400">#${b.id}</span>
+          </div>
+          <div class="text-stone-700 font-medium">${b.stylistName} ｜ ${b.serviceName}</div>
+          <div class="text-stone-500">預約人：${b.customerName}</div>
+          ${b.note ? `<div class="text-stone-500">剪髮偏好/備註：${b.note}</div>` : ''}
+          <div class="pt-2 flex justify-between items-center border-t border-stone-200/70">
+            <span class="font-bold text-stone-800">NT$ ${Number(b.price).toLocaleString()}</span>
+            <button onclick="cancelMyBooking('${b.id}')" class="text-red-500 hover:underline">取消預約</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function cancelMyBooking(id) {
+      if (!confirm('確定要取消這筆預約嗎？')) return;
+      try {
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'cancel', id: id, phone: verifiedPhone })
+        });
+        const data = await res.json();
+        if (!data.ok) return alert(data.error || '取消失敗');
+        await fetchBookedSlots();
+        await searchMyBookings();
+      } catch (err) {
+        alert('取消預約時發生網路錯誤');
+      }
+    }
+
+    function formatDate(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    init();
+  </script>
+</body>
+</html>
